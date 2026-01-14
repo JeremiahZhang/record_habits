@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>习惯打卡热力图</title>
+    <!-- 引入 Tailwind CSS (样式库) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Lucide Icons (图标库) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* 简单的动画定义 */
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans text-slate-800 min-h-screen flex flex-col items-center py-10">
+
+    <!-- 应用挂载点 -->
+    <div id="app" class="w-full max-w-3xl px-6 flex flex-col gap-6">
+        <!-- 内容将由 JavaScript 动态生成 -->
+    </div>
+
+    <script>
+        /**
+         * 习惯打卡应用逻辑 (Vanilla JS版)
+         */
+        const App = (() => {
+            // --- 配置 ---
+            const HABIT_THEMES = [
+                { name: 'green',  primary: 'bg-emerald-500', hover: 'hover:bg-emerald-600', light: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', ring: 'ring-emerald-400', hex: '#059669' },
+                { name: 'blue',   primary: 'bg-sky-500',     hover: 'hover:bg-sky-600',     light: 'bg-sky-50',     text: 'text-sky-700',     border: 'border-sky-200',     ring: 'ring-sky-400',     hex: '#0284c7' },
+                { name: 'orange', primary: 'bg-amber-500',   hover: 'hover:bg-amber-600',   light: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   ring: 'ring-amber-400',   hex: '#d97706' }
+            ];
+
+            // --- 状态 (State) ---
+            let state = {
+                currentDate: new Date(),
+                selectedDay: null,
+                activeTab: 'all', // 'all' | 0 | 1 | 2
+                habitSettings: JSON.parse(localStorage.getItem('habit_settings') || '{}'),
+                records: JSON.parse(localStorage.getItem('habit_records') || '{}'),
+                isEditingHabits: false,
+                tempHabitNames: ["", "", ""],
+                saveStatus: 'saved'
+            };
+
+            // --- 辅助函数 ---
+            const getMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            const getDateKey = (date, day) => `${getMonthKey(date)}-${String(day).padStart(2, '0')}`;
+            
+            // --- 核心操作 ---
+
+            function setState(updates) {
+                state = { ...state, ...updates };
+                render(); // 每次状态更新重新渲染
+                saveData(); // 尝试保存数据
+            }
+
+            function saveData() {
+                // 模拟 React 的 useEffect 自动保存
+                setStateWithoutRender({ saveStatus: 'saving' });
+                localStorage.setItem('habit_settings', JSON.stringify(state.habitSettings));
+                localStorage.setItem('habit_records', JSON.stringify(state.records));
+                
+                // 渲染保存状态并在500ms后恢复
+                renderHeader(); 
+                setTimeout(() => {
+                    setStateWithoutRender({ saveStatus: 'saved' });
+                    renderHeader();
+                }, 500);
+            }
+
+            // 仅更新状态不触发全面重绘（用于防抖或局部更新）
+            function setStateWithoutRender(updates) {
+                state = { ...state, ...updates };
+            }
+
+            // --- 业务逻辑 ---
+
+            const actions = {
+                changeMonth: (offset) => {
+                    const newDate = new Date(state.currentDate.getFullYear(), state.currentDate.getMonth() + offset, 1);
+                    setState({ currentDate: newDate, isEditingHabits: false, selectedDay: null });
+                },
+
+                startEditing: () => {
+                    const currentMonthKey = getMonthKey(state.currentDate);
+                    const currentHabits = state.habitSettings[currentMonthKey] || ["习惯 1", "习惯 2", "习惯 3"];
+                    setState({ isEditingHabits: true, tempHabitNames: [...currentHabits] });
+                },
+
+                saveHabits: () => {
+                    const currentMonthKey = getMonthKey(state.currentDate);
+                    const newSettings = { ...state.habitSettings, [currentMonthKey]: state.tempHabitNames };
+                    setState({ habitSettings: newSettings, isEditingHabits: false });
+                },
+
+                updateTempHabitName: (index, value) => {
+                    const newNames = [...state.tempHabitNames];
+                    newNames[index] = value;
+                    setState({ tempHabitNames: newNames });
+                },
+
+                toggleHabit: (day, habitIndex) => {
+                    const key = getDateKey(state.currentDate, day);
+                    const dayRecord = state.records[key] || [false, false, false];
+                    const newDayRecord = [...dayRecord];
+                    newDayRecord[habitIndex] = !newDayRecord[habitIndex];
+                    
+                    const newRecords = { ...state.records, [key]: newDayRecord };
+                    setState({ records: newRecords });
+                },
+
+                handleDayClick: (day) => {
+                    if (state.activeTab === 'all') {
+                        setState({ selectedDay: state.selectedDay === day ? null : day });
+                    } else {
+                        actions.toggleHabit(day, state.activeTab);
+                    }
+                },
+
+                setActiveTab: (tab) => {
+                    setState({ activeTab: tab, selectedDay: null });
+                },
+
+                closePopup: (e) => {
+                    if(e) e.stopPropagation();
+                    setState({ selectedDay: null });
+                },
+
+                exportData: () => {
+                    exportVisualizedData();
+                }
+            };
+
+            // --- 导出逻辑 (与原 React 代码一致) ---
+            function exportVisualizedData() {
+                let htmlContent = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>习惯打卡记录档案</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:40px;background:#f9fafb;color:#1f2937}.container{max-width:800px;margin:0 auto;background:white;padding:40px;border-radius:16px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)}h1{color:#111827;border-bottom:2px solid #e5e7eb;pb-4;margin-bottom:30px}.month-section{margin-bottom:50px;page-break-inside:avoid}.month-title{font-size:1.4rem;font-weight:800;margin-bottom:20px;color:#374151;border-left:5px solid #059669;padding-left:12px}.habit-legend{display:flex;gap:15px;margin-bottom:15px;background:#f3f4f6;padding:10px;border-radius:8px}.legend-item{font-size:0.9rem;font-weight:600;display:flex;align-items:center;gap:6px}.dot{width:10px;height:10px;border-radius:50%}table{width:100%;border-collapse:collapse;font-size:0.875rem}th,td{border:1px solid #e5e7eb;padding:8px 6px;text-align:center}th{background:#f9fafb;font-weight:600;color:#6b7280;font-size:0.8rem;text-transform:uppercase}tr:nth-child(even){background-color:#fcfcfc}.check{font-weight:900;font-size:1.1rem}.summary{font-size:0.9rem;color:#4b5563;margin-top:15px;background:#fffbeb;padding:10px;border-radius:6px;border:1px solid #fcd34d}</style></head><body><div class="container"><h1>📅 习惯打卡记录档案</h1><p style="color:#6b7280;margin-bottom:40px">导出时间: ${new Date().toLocaleString()}</p>`;
+                
+                const recordedMonths = Object.keys(state.habitSettings).sort().reverse();
+                if (recordedMonths.length === 0) htmlContent += `<p>暂无记录。</p>`;
+
+                recordedMonths.forEach(monthKey => {
+                    const habits = state.habitSettings[monthKey] || ["习惯1", "习惯2", "习惯3"];
+                    const [year, month] = monthKey.split('-');
+                    const daysInMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
+                    
+                    htmlContent += `<div class="month-section"><div class="month-title">${year}年 ${month}月</div><div class="habit-legend">
+                        ${habits.map((h, i) => `<span class="legend-item" style="color:${HABIT_THEMES[i].hex}"><span class="dot" style="background:${HABIT_THEMES[i].hex}"></span>${h || '未命名'}</span>`).join('')}
+                    </div><table><thead><tr><th width="15%">日期</th>${habits.map((h,i) => `<th width="28%">${h || `习惯 ${i+1}`}</th>`).join('')}</tr></thead><tbody>`;
+
+                    let stats = [0, 0, 0];
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const dateKey = `${monthKey}-${String(day).padStart(2, '0')}`;
+                        const dayRecord = state.records[dateKey];
+                        const r = [dayRecord?.[0], dayRecord?.[1], dayRecord?.[2]];
+                        r.forEach((v, i) => { if(v) stats[i]++ });
+                        
+                        htmlContent += `<tr><td style="color:#9ca3af;font-size:0.8rem">${day}</td>
+                        ${r.map((val, i) => `<td class="check" style="color:${val ? HABIT_THEMES[i].hex : '#e5e7eb'}">${val ? '✓' : '·'}</td>`).join('')}</tr>`;
+                    }
+                    htmlContent += `</tbody></table><div class="summary"><strong>本月坚持天数：</strong> ${habits.map((h, i) => `<span style="color:${HABIT_THEMES[i].hex}">${h}: ${stats[i]}天</span>`).join(' &nbsp;|&nbsp; ')}</div></div>`;
+                });
+                htmlContent += `</div></body></html>`;
+
+                const blob = new Blob([htmlContent], { type: "text/html" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `习惯打卡记录_${new Date().toISOString().split('T')[0]}.html`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            // --- 渲染 (Render) 逻辑 ---
+
+            function getDayColorClass(day) {
+                const key = getDateKey(state.currentDate, day);
+                const dayRecord = state.records[key] || [false, false, false];
+
+                if (state.activeTab === 'all') {
+                    const count = dayRecord.filter(Boolean).length;
+                    switch (count) {
+                        case 0: return 'bg-gray-100 border-gray-200 text-gray-400';
+                        case 1: return 'bg-slate-200 border-slate-300 text-slate-600';
+                        case 2: return 'bg-slate-400 border-slate-500 text-white';
+                        case 3: return 'bg-slate-700 border-slate-800 text-white';
+                        default: return 'bg-gray-100 border-gray-200';
+                    }
+                } else {
+                    const isDone = dayRecord[state.activeTab];
+                    const theme = HABIT_THEMES[state.activeTab];
+                    return isDone 
+                        ? `${theme.primary} border-transparent text-white shadow-inner transform scale-95 transition-transform` 
+                        : `bg-white border-2 border-gray-100 text-gray-300 hover:border-gray-300`;
+                }
+            }
+
+            function getHabitStats(index) {
+                let count = 0;
+                const daysInMonth = new Date(state.currentDate.getFullYear(), state.currentDate.getMonth() + 1, 0).getDate();
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const key = getDateKey(state.currentDate, i);
+                    if (state.records[key]?.[index]) count++;
+                }
+                return count;
+            }
+
+            // 1. 渲染顶部导航
+            function renderHeader() {
+                return `
+                <div class="w-full flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="p-3 bg-slate-800 rounded-xl shadow-lg shadow-slate-200">
+                            <i data-lucide="calendar" class="text-white w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold tracking-tight text-slate-800">习惯热力图</h1>
+                            <p class="text-xs text-gray-500 flex items-center gap-2">
+                                <span>坚持成就卓越</span>
+                                ${state.saveStatus === 'saving' ? '<span class="text-orange-400 animate-pulse">● 正在保存...</span>' : '<span class="text-green-500">● 已保存</span>'}
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-2">
+                        <div class="flex items-center bg-white rounded-full shadow-sm border border-gray-200 p-1">
+                            <button onclick="App.changeMonth(-1)" class="p-2 hover:bg-gray-100 rounded-full transition-colors"><i data-lucide="chevron-left" class="w-5 h-5 text-gray-600"></i></button>
+                            <span class="px-4 font-semibold text-lg min-w-[140px] text-center">
+                                ${state.currentDate.getFullYear()}年 ${state.currentDate.getMonth() + 1}月
+                            </span>
+                            <button onclick="App.changeMonth(1)" class="p-2 hover:bg-gray-100 rounded-full transition-colors"><i data-lucide="chevron-right" class="w-5 h-5 text-gray-600"></i></button>
+                        </div>
+                        <button onclick="App.exportData()" class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-full hover:bg-gray-50 hover:text-green-700 transition-colors shadow-sm text-sm font-medium" title="导出 HTML 报表">
+                            <i data-lucide="download" class="w-4 h-4"></i>
+                            <span class="hidden sm:inline">导出报表</span>
+                        </button>
+                    </div>
+                </div>`;
+            }
+
+            // 2. 渲染 Tab 和 主体
+            function renderMain() {
+                const currentMonthKey = getMonthKey(state.currentDate);
+                const currentHabits = state.habitSettings[currentMonthKey] || ["习惯 1", "习惯 2", "习惯 3"];
+                const daysInMonth = new Date(state.currentDate.getFullYear(), state.currentDate.getMonth() + 1, 0).getDate();
+                const firstDayOfMonth = new Date(state.currentDate.getFullYear(), state.currentDate.getMonth(), 1).getDay();
+
+                // Tabs HTML
+                const tabsHtml = `
+                <div class="bg-white rounded-2xl p-1 shadow-sm border border-gray-200 flex flex-wrap">
+                    <button onclick="App.setActiveTab('all')" class="flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl transition-all font-medium text-sm border-2 border-transparent ${state.activeTab === 'all' ? 'bg-slate-700 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}">
+                        <i data-lucide="layout-grid" class="w-4 h-4"></i> 全部概览
+                    </button>
+                    ${currentHabits.map((habit, idx) => {
+                        const theme = HABIT_THEMES[idx];
+                        const isActive = state.activeTab === idx;
+                        return `<button onclick="App.setActiveTab(${idx})" class="flex-1 min-w-[100px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl transition-all font-medium text-sm border-2 ${isActive ? `${theme.primary} text-white shadow-md border-transparent` : `border-transparent text-gray-500 hover:${theme.light} hover:${theme.text}`}">
+                            <i data-lucide="activity" class="w-4 h-4"></i> <span class="truncate max-w-[80px]">${habit || `习惯 ${idx + 1}`}</span>
+                        </button>`;
+                    }).join('')}
+                </div>`;
+
+                // Status Bar & Edit Area
+                let statusHtml = '';
+                if (state.activeTab === 'all') {
+                    statusHtml = `<div><h2 class="text-lg font-bold text-gray-800">月度总览</h2><p class="text-xs text-gray-400 mt-1">颜色越深，当天完成的任务越多</p></div>`;
+                } else {
+                    const theme = HABIT_THEMES[state.activeTab];
+                    statusHtml = `<div><h2 class="text-lg font-bold flex items-center gap-2 ${theme.text}">
+                        ${currentHabits[state.activeTab] || `习惯 ${state.activeTab + 1}`}
+                        <span class="text-xs px-2 py-1 rounded-full font-normal ${theme.light} ${theme.text}">本月已打卡 ${getHabitStats(state.activeTab)} 天</span>
+                    </h2></div>`;
+                }
+
+                const editButtonHtml = !state.isEditingHabits
+                    ? `<button onclick="App.startEditing()" class="text-xs flex items-center gap-1 text-gray-400 hover:text-slate-600 transition-colors"><i data-lucide="edit-3" class="w-3 h-3"></i> 编辑习惯名称</button>`
+                    : `<button onclick="App.saveHabits()" class="text-xs flex items-center gap-1 text-slate-700 font-bold animate-pulse"><i data-lucide="save" class="w-3 h-3"></i> 保存设置</button>`;
+
+                const editInputsHtml = state.isEditingHabits ? `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    ${state.tempHabitNames.map((habit, idx) => `
+                        <div class="flex flex-col gap-1">
+                            <label class="text-xs font-bold uppercase ${HABIT_THEMES[idx].text}">习惯 ${idx + 1}</label>
+                            <input type="text" value="${habit}" oninput="App.updateTempHabitName(${idx}, this.value)" class="w-full p-2 border border-gray-300 rounded-lg outline-none text-sm focus:ring-2 ${HABIT_THEMES[idx].ring}" placeholder="输入习惯名称...">
+                        </div>
+                    `).join('')}
+                </div>` : '';
+
+                // Calendar Grid
+                let gridHtml = `<div class="grid grid-cols-7 mb-2">
+                    ${['日','一','二','三','四','五','六'].map(d => `<div class="text-center text-xs font-bold text-gray-300 uppercase pb-2">${d}</div>`).join('')}
+                </div><div class="grid grid-cols-7 gap-2 md:gap-3">`;
+
+                // Empty slots
+                for(let i=0; i<firstDayOfMonth; i++) gridHtml += `<div class="aspect-square"></div>`;
+
+                // Days
+                for(let i=1; i<=daysInMonth; i++) {
+                    const isSelected = state.selectedDay === i;
+                    const colorClass = getDayColorClass(i);
+                    const ringClass = isSelected ? 'ring-2 ring-offset-2 ring-slate-400 z-10' : '';
+                    
+                    let popupHtml = '';
+                    if (isSelected && state.activeTab === 'all') {
+                        popupHtml = `
+                        <div class="absolute z-20 bottom-full left-1/2 transform -translate-x-1/2 mb-3 w-60 bg-white rounded-xl shadow-2xl border border-gray-100 p-4 animate-fade-in cursor-default" onclick="event.stopPropagation()">
+                            <div class="text-center text-sm font-bold text-gray-500 mb-3 border-b pb-2 flex justify-between items-center">
+                                <span>${state.currentDate.getMonth() + 1}月${i}日</span>
+                                <button onclick="App.closePopup(event)" class="hover:bg-gray-100 p-1 rounded"><i data-lucide="x" class="w-3 h-3"></i></button>
+                            </div>
+                            <div class="space-y-2">
+                                ${currentHabits.map((h, idx) => {
+                                    const key = getDateKey(state.currentDate, i);
+                                    const isDone = state.records[key]?.[idx] || false;
+                                    const theme = HABIT_THEMES[idx];
+                                    const btnClass = isDone ? `${theme.light} ${theme.text} ${theme.border}` : 'bg-white text-gray-500 border-transparent hover:bg-gray-50';
+                                    const icon = isDone ? `<i data-lucide="check" class="w-4 h-4"></i>` : `<div class="w-4 h-4 rounded-full border-2 border-gray-200"></div>`;
+                                    return `<button onclick="App.toggleHabit(${i}, ${idx})" class="w-full flex items-center justify-between p-2 rounded-lg text-sm transition-colors border ${btnClass}">
+                                        <span class="truncate max-w-[150px] text-left font-medium">${h || `习惯 ${idx+1}`}</span> ${icon}
+                                    </button>`;
+                                }).join('')}
+                            </div>
+                            <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-8 border-transparent border-t-white"></div>
+                        </div>`;
+                    }
+
+                    gridHtml += `
+                    <div class="relative group">
+                        <button onclick="App.handleDayClick(${i})" class="w-full aspect-square rounded-lg transition-all duration-150 active:scale-95 flex items-center justify-center relative ${colorClass} ${ringClass}">
+                            <span class="font-bold text-sm md:text-base">${i}</span>
+                        </button>
+                        ${popupHtml}
+                    </div>`;
+                }
+                gridHtml += `</div>`;
+
+                // Footer Legend
+                const legendHtml = state.activeTab === 'all' ? `
+                <div class="flex items-center gap-1 text-xs text-gray-400">
+                    <span>少</span>
+                    <div class="w-3 h-3 bg-slate-200 rounded-sm"></div>
+                    <div class="w-3 h-3 bg-slate-400 rounded-sm"></div>
+                    <div class="w-3 h-3 bg-slate-700 rounded-sm"></div>
+                    <span>多</span>
+                </div>` : '';
+
+                return `
+                ${tabsHtml}
+                <div class="bg-white rounded-2xl p-6 shadow-xl shadow-gray-100 border border-gray-200">
+                    <div class="flex justify-between items-center mb-6 pb-4 border-b border-gray-100">
+                        ${statusHtml}
+                        ${editButtonHtml}
+                    </div>
+                    ${editInputsHtml}
+                    ${gridHtml}
+                    <div class="mt-6 pt-4 border-t border-gray-50 flex justify-between items-center">
+                        <div class="text-xs text-gray-400">${state.activeTab === 'all' ? '点击格子查看详情' : '直接点击格子即可打卡'}</div>
+                        ${legendHtml}
+                    </div>
+                </div>`;
+            }
+
+            // 主渲染函数
+            function render() {
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    ${renderHeader()}
+                    ${renderMain()}
+                `;
+                // 渲染图标
+                lucide.createIcons();
+            }
+
+            // 初始化
+            render();
+
+            // 暴露给 window 以便 HTML onclick 调用
+            return actions;
+        })();
+
+        // 将 App 挂载到 window 对象，以便 inline onclick 可以访问
+        window.App = App;
+    </script>
+</body>
+</html>
