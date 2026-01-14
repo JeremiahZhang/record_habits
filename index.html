@@ -100,7 +100,15 @@
                 updateTempHabitName: (index, value) => {
                     const newNames = [...state.tempHabitNames];
                     newNames[index] = value;
-                    setState({ tempHabitNames: newNames });
+                    // 修复：这里使用 setStateWithoutRender，只更新数据，不触发重绘，避免输入焦点丢失
+                    setStateWithoutRender({ tempHabitNames: newNames });
+                },
+
+                handleInputKeydown: (e) => {
+                    // 新增：监听 Enter 键，按下时保存
+                    if (e.key === 'Enter') {
+                        actions.saveHabits();
+                    }
                 },
 
                 toggleHabit: (day, habitIndex) => {
@@ -285,7 +293,10 @@
                     ${state.tempHabitNames.map((habit, idx) => `
                         <div class="flex flex-col gap-1">
                             <label class="text-xs font-bold uppercase ${HABIT_THEMES[idx].text}">习惯 ${idx + 1}</label>
-                            <input type="text" value="${habit}" oninput="App.updateTempHabitName(${idx}, this.value)" class="w-full p-2 border border-gray-300 rounded-lg outline-none text-sm focus:ring-2 ${HABIT_THEMES[idx].ring}" placeholder="输入习惯名称...">
+                            <input type="text" value="${habit}" 
+                                oninput="App.updateTempHabitName(${idx}, this.value)" 
+                                onkeydown="App.handleInputKeydown(event)"
+                                class="w-full p-2 border border-gray-300 rounded-lg outline-none text-sm focus:ring-2 ${HABIT_THEMES[idx].ring}" placeholder="输入习惯名称...">
                         </div>
                     `).join('')}
                 </div>` : '';
